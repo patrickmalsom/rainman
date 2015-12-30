@@ -1,0 +1,145 @@
+#!/usr/bin/python3
+
+import json
+import datetime
+import urllib.request
+import shutil
+import os.path
+
+api_key=""
+latitude=42.3
+longitude=-85.6
+cache_forecast_expire = 7200 # redownload cache at 2 hrs
+cache_weather_expire = 600   # redownload cache at 10 mins
+
+weather_file_name = "/tmp/.weather_weather"
+forecast_file_name = "/tmp/.weather_forecast"
+
+
+
+# save current time
+current_time = int(datetime.datetime.now().strftime('%s'))
+
+# lambda to querry for file modification time
+file_modify_time = lambda file_name : os.path.getmtime(file_name) if os.path.isfile(file_name) else 0
+
+
+# Download the weather from `url` and save it locally under `file_name`:
+url="http://api.openweathermap.org/data/2.5/weather?lat="+str(latitude)+"&lon="+str(longitude)+"&APPID="+api_key
+# only download the file if the cached file is too old or dosent exist
+if current_time - file_modify_time(weather_file_name) > cache_weather_expire:
+    with urllib.request.urlopen(url) as response, open(weather_file_name, 'wb') as out_file:
+        shutil.copyfileobj(response, out_file)
+        
+# Download the forecast from `url` and save it locally under `file_name`:
+url="http://api.openweathermap.org/data/2.5/forecast?lat="+str(latitude)+"&lon="+str(longitude)+"&APPID="+api_key
+# only download the file if the cached file is too old or dosent exist
+if current_time - file_modify_time(forecast_file_name) > cache_forecast_expire:
+    with urllib.request.urlopen(url) as response, open(forecast_file_name, 'wb') as out_file:
+        shutil.copyfileobj(response, out_file)
+
+# current weather report
+with open(weather_file_name,'r') as weather_data_file:
+    weather_data = json.load(weather_data_file)
+
+# 5 day weather report; every 3 hours
+with open(forecast_file_name,'r') as forecast_data_file:
+    forecast_data = json.load(forecast_data_file)
+
+
+# Unit conversion lambda functions
+# Temperature: Kelvin
+farenheit = lambda K : float(format(int(K)*1.8 - 459.67, ".1f"))
+celcius = lambda K : float(format(int(K) - 273.15, ".1f"))
+
+# Pressure: hPa (hectopascals)
+
+
+
+# save some data to lists
+forecast_temp_data=[[forecast_data['list'][i]['dt'],farenheit(forecast_data['list'][i]['main']['temp'])] for i in range(len(forecast_data['list']))]
+forecast_pressure_data=[[forecast_data['list'][i]['dt'],farenheit(forecast_data['list'][i]['main']['pressure'])] for i in range(len(forecast_data['list']))]
+
+
+def forecast_array(data_list):
+    # takes an ordered list of data and makes an 2d array which can be turned into a plot
+    max_data=max([row[1] for row in data_list])
+    min_data=min([row[1] for row in data_list])
+    
+    plot_array = [ [0 for i in range(38)] for j in range(14) ]
+    
+    for day in range(38):
+        data_entry=data_list[day][1]
+        # calculate the row to change in the plot_array matrix for each column in plot_array
+        row_change=min(12,
+                       int(abs((data_entry-min_data)/(max_data-min_data)-1.)*13)
+                   )
+        #change the row calculated above to be 1 for each column
+        plot_array[row_change][day]=1
+    
+    return plot_array
+
+def print_row_data(plot_array,data_list,row_num):
+    for cols in range(38):
+        if plot_array[row_num][cols] == 0:
+            print(" ",end="")
+        else:
+            print("*",end="")
+
+def forecast_ascii_plot(plot_array,data_list,data_name):
+    
+    max_data=max([row[1] for row in data_list])
+    min_data=min([row[1] for row in data_list])
+    
+    #labels for plots
+    mid_high_label=(max_data-min_data)*.75 + min_data
+    mid_label=(max_data-min_data)*.5 + min_data
+    mid_low_label=(max_data-min_data)*.25 + min_data
+    
+    # spaces to pad the left with
+    left_pad_spaces=8
+    
+    #lambda function for printing the y-axes label numbers
+    label_print = lambda value,spaces : print(format(value, ".1f").rjust(spaces)+"|",end="")
+    
+    # Plot title (given from data_name)
+    print(left_pad_spaces*" " + int(1 + max(0,((38-len(data_name))/2.)))*" " + data_name)
+    
+    # first row (top of the plot)
+    print(left_pad_spaces*" "+" ______________________________________")
+    
+    for rows in range(13):
+        if rows == 0:
+            label_print(max_data,left_pad_spaces)
+        elif rows == 3:
+            label_print(mid_high_label,left_pad_spaces)
+        elif rows == 6:
+            label_print(mid_label,left_pad_spaces)
+        elif rows == 9:
+            label_print(mid_low_label,left_pad_spaces)
+        elif rows == 12:
+            label_print(min_data,left_pad_spaces)
+        else:
+            print(left_pad_spaces*" "+"|",end="")
+        print_row_data(plot_array,data_list,rows)
+        print("|")
+        
+    # bottom row (bottom of the plot)
+    print(left_pad_spaces*" "+"|______________________________________|")
+    
+    # date axis labels
+    print(left_pad_spaces*" "+" "+date_axis_label(data_list[0][0]))
+        
+
+def date_axis_label(utf):
+    # print the bottom axis label. takes the starting utf date as func argument
+    date_string="|  Sun  |  Mon  |  Tue  |  Wed  |  Thu  |  Fri  |  Sat  |  Sun  |  Mon  |  Tue  |  Wed  |  Thu  |  Fri  |  Sat  |"
+    date_string_staring_index = int(( int(datetime.datetime.fromtimestamp(int(utf)).strftime('%w'))*24 \
+            + int(datetime.datetime.fromtimestamp(int(utf)).strftime('%H'))-1 )\
+            /3)
+    return date_string[date_string_staring_index:date_string_staring_index+38]
+
+
+forecast_ascii_plot(forecast_array(forecast_temp_data),forecast_temp_data,"Temperature (Farenheit)")
+
+forecast_ascii_plot(forecast_array(forecast_pressure_data),forecast_pressure_data,"Pressure (hPa)")

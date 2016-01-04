@@ -3,7 +3,7 @@
 import json
 import datetime
 import urllib.request
-import shutil.copyfileobj
+import shutil
 import os.path
 #import sys
 
